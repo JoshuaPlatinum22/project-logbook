@@ -114,8 +114,13 @@ select { border: 1px solid var(--line); background: var(--surface); border-radiu
 .task input[type=checkbox] { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--ok); cursor: pointer; }
 .task label { overflow-wrap: anywhere; cursor: pointer; }
 .task.done label { color: var(--muted); text-decoration: line-through; }
+.task .acts { display: flex; gap: 2px; }
 .task .btn.ghost { font-size: 12.5px; opacity: 0; padding: 0 6px; }
-.task:hover .btn.ghost, .task .btn.ghost:focus-visible { opacity: 1; }
+.task:hover .btn.ghost, .task:focus-within .btn.ghost, .task .btn.ghost:focus-visible { opacity: 1; }
+.task.editing { grid-template-columns: minmax(0, 1fr); background: var(--sunk); padding: 8px; }
+.task.editing form { display: flex; gap: 8px; flex-wrap: wrap; }
+.task.editing input { flex: 1 1 200px; min-width: 0; border: 1px solid var(--accent); background: var(--surface); border-radius: 8px; padding: 6px 10px; }
+.task.editing .btn { padding: 6px 12px; }
 @media (hover: none) { .task .btn.ghost { opacity: 1; } }
 .donehead { font: 11.5px var(--mono); color: var(--muted); padding: 10px 4px 2px; }
 .notasks { color: var(--muted); font-size: 14px; padding: 4px; }
@@ -182,7 +187,7 @@ const STATUSES = [
   { id: "done", label: "Done" },
 ];
 const STATUS_RANK = { active: 0, blocked: 1, paused: 2, done: 3 };
-const state = { projects: [], selected: null, filter: "open", canWrite: true, loaded: false, confirmDelete: false };
+const state = { projects: [], selected: null, filter: "open", canWrite: true, loaded: false, confirmDelete: false, editingTask: null };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -250,10 +255,16 @@ function renderDetail() {
   const ro = state.canWrite ? "" : "disabled";
   const tasks = p.tasks || [];
   const openT = tasks.filter(t => !t.done), doneT = tasks.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
-  const taskRow = t => `<li class="task${t.done ? " done" : ""}">
+  const taskRow = t => state.editingTask === t.id ? `<li class="task editing">
+      <form id="taskeditform" data-task-id="${esc(t.id)}">
+        <label for="taskedit" hidden>Task wording</label>
+        <input id="taskedit" value="${esc(t.text)}" maxlength="500" autocomplete="off">
+        <button class="btn primary" type="submit">Save</button>
+        <button class="btn" type="button" id="taskcancel">Cancel</button>
+      </form></li>` : `<li class="task${t.done ? " done" : ""}">
       <input type="checkbox" id="t-${esc(t.id)}" data-task-toggle="${esc(t.id)}" ${t.done ? "checked" : ""} ${ro}>
       <label for="t-${esc(t.id)}">${esc(t.text)}</label>
-      ${state.canWrite ? `<button class="btn ghost" data-del-task="${esc(t.id)}" aria-label="Delete task">Delete</button>` : "<span></span>"}</li>`;
+      ${state.canWrite ? `<span class="acts"><button class="btn ghost" data-edit-task="${esc(t.id)}" aria-label="Edit task">Edit</button><button class="btn ghost" data-del-task="${esc(t.id)}" aria-label="Delete task">Delete</button></span>` : "<span></span>"}</li>`;
   el.innerHTML = `
     <div class="dhead">
       <input class="titleinput" id="title" value="${esc(p.name)}" aria-label="Project name" maxlength="120" ${ro}>
@@ -303,7 +314,7 @@ function renderDetail() {
 function render() { renderFilters(); renderList(); renderDetail(); }
 
 function select(id) {
-  state.selected = id; state.confirmDelete = false;
+  state.selected = id; state.confirmDelete = false; state.editingTask = null;
   try { localStorage.setItem("pl-selected", id || ""); } catch (e) {}
   render();
 }
@@ -381,8 +392,14 @@ detail.addEventListener("change", e => {
 detail.addEventListener("keydown", e => {
   if (e.target.id === "note" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("composer").requestSubmit(); }
   if (e.target.id === "title" && e.key === "Enter") e.target.blur();
+  if (e.target.id === "taskedit" && e.key === "Escape") { e.preventDefault(); cancelTaskEdit(); }
 });
 detail.addEventListener("submit", e => {
+  if (e.target.id === "taskeditform") {
+    e.preventDefault();
+    saveTaskEdit();
+    return;
+  }
   if (e.target.id === "taskform") {
     e.preventDefault();
     const p = current(); const text = $("task").value.trim();
@@ -402,6 +419,9 @@ detail.addEventListener("submit", e => {
 detail.addEventListener("click", e => {
   const p = current(); if (!p) return;
   const del = e.target.closest("[data-del-note]");
+  const editT = e.target.closest("[data-edit-task]");
+  if (editT) { startTaskEdit(editT.dataset.editTask); return; }
+  if (e.target.id === "taskcancel") { cancelTaskEdit(); return; }
   const delT = e.target.closest("[data-del-task]");
   if (delT) { patch(p.id, { tasks: (p.tasks || []).filter(t => t.id !== delT.dataset.delTask) }); return; }
   if (del) { patch(p.id, { notes: (p.notes || []).filter(n => n.id !== del.dataset.delNote) }); return; }
@@ -415,6 +435,29 @@ detail.addEventListener("click", e => {
   }
 });
 
+function startTaskEdit(id) {
+  state.editingTask = id;
+  renderDetail();
+  const inp = $("taskedit");
+  if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+}
+function cancelTaskEdit() {
+  const id = state.editingTask;
+  state.editingTask = null;
+  renderDetail();
+  document.querySelector(`[data-edit-task="${CSS.escape(id || "")}"]`)?.focus();
+}
+function saveTaskEdit() {
+  const p = current(); const id = state.editingTask; const inp = $("taskedit");
+  if (!p || !id || !inp) return;
+  const text = inp.value.trim();
+  if (!text) { inp.focus(); return; }
+  state.editingTask = null;
+  document.activeElement?.blur();
+  patch(p.id, { tasks: (p.tasks || []).map(t => t.id === id ? { ...t, text } : t) });
+  document.querySelector(`[data-edit-task="${CSS.escape(id)}"]`)?.focus();
+}
+
 // Re-render on snapshot without clobbering text the user is typing.
 function applySnapshot(docs) {
   state.projects = docs;
@@ -422,7 +465,7 @@ function applySnapshot(docs) {
   if (state.selected && !current()) state.selected = null;
   if (!state.selected) { const v = visible(); if (v.length && window.innerWidth > 760) state.selected = v[0].id; }
   const a = document.activeElement;
-  const typing = a && detail.contains(a) && (a.id === "upto" || a.id === "note" || a.id === "title" || a.id === "task");
+  const typing = a && detail.contains(a) && (a.id === "upto" || a.id === "note" || a.id === "title" || a.id === "task" || a.id === "taskedit");
   renderFilters(); renderList();
   if (typing) {
     const keep = { id: a.id, value: a.value, s: a.selectionStart, e: a.selectionEnd };
