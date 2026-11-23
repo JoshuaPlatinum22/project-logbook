@@ -64,6 +64,7 @@ function clean(id, p) {
     status: STATUSES.includes(p.status) ? p.status : "active",
     upTo: str(p.upTo, 20000),
     upToAt: num(p.upToAt),
+    tasks: (Array.isArray(p.tasks) ? p.tasks : []).slice(0, 1000).map((t) => ({ id: str(t.id, 64), text: str(t.text, 500), done: !!t.done, at: num(t.at), doneAt: num(t.doneAt) })),
     notes: (Array.isArray(p.notes) ? p.notes : []).slice(0, 2000).map((n) => ({ id: str(n.id, 64), text: str(n.text, 20000), at: num(n.at) })),
     createdAt: num(p.createdAt) || Date.now(),
     updatedAt: num(p.updatedAt) || Date.now(),

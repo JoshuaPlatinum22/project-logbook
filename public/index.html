@@ -104,6 +104,21 @@ select { border: 1px solid var(--line); background: var(--surface); border-radiu
 .bookmark textarea { width: 100%; border: 0; background: transparent; resize: vertical; min-height: 70px; font-size: 16px; line-height: 1.55; }
 .bookmark textarea:focus { outline: none; }
 
+.taskform { display: flex; gap: 8px; margin-bottom: 6px; }
+.taskform input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 12px; }
+.progress { height: 4px; background: var(--sunk); border-radius: 999px; overflow: hidden; margin: -2px 0 10px; }
+.progress span { display: block; height: 100%; background: var(--ok); border-radius: inherit; }
+.tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.task { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 7px 4px; border-radius: 6px; }
+.task:hover { background: var(--sunk); }
+.task input[type=checkbox] { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--ok); cursor: pointer; }
+.task label { overflow-wrap: anywhere; cursor: pointer; }
+.task.done label { color: var(--muted); text-decoration: line-through; }
+.task .btn.ghost { font-size: 12.5px; opacity: 0; padding: 0 6px; }
+.task:hover .btn.ghost, .task .btn.ghost:focus-visible { opacity: 1; }
+@media (hover: none) { .task .btn.ghost { opacity: 1; } }
+.donehead { font: 11.5px var(--mono); color: var(--muted); padding: 10px 4px 2px; }
+.notasks { color: var(--muted); font-size: 14px; padding: 4px; }
 .composer { display: grid; gap: 8px; }
 .composer textarea { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 10px 12px; min-height: 76px; resize: vertical; }
 .composer .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -217,7 +232,7 @@ function renderList() {
     return `<li><button class="item" data-id="${esc(p.id)}" aria-current="${p.id === state.selected}">
       <span class="name"><span>${esc(p.name)}</span><span class="pill s-${st.id}">${st.label}</span></span>
       <span class="peek">${esc(peek)}</span>
-      <span class="when">touched ${ago(p.updatedAt)}</span>
+      <span class="when">${(() => { const t = p.tasks || [], left = t.filter(x => !x.done).length; return t.length ? (left ? left + " task" + (left === 1 ? "" : "s") + " left · " : "all tasks done · ") : ""; })()}touched ${ago(p.updatedAt)}</span>
     </button></li>`;
   }).join("");
 }
@@ -228,11 +243,17 @@ function renderDetail() {
   if (!state.loaded) return;
   if (!p) {
     el.innerHTML = `<div class="welcome"><h2>${state.projects.length ? "Pick a project" : "Start your first project"}</h2>
-      <p>${state.projects.length ? "Choose a project from the list to see where you're up to and add notes." : "Add a project on the left. Each one gets a bookmark for where you're up to, plus a dated log of notes."}</p></div>`;
+      <p>${state.projects.length ? "Choose a project from the list to see where you're up to and add notes." : "Add a project on the left. Each one gets a bookmark for where you're up to, a task list, and a dated log of notes."}</p></div>`;
     return;
   }
   const notes = (p.notes || []).slice().sort((a, b) => b.at - a.at);
   const ro = state.canWrite ? "" : "disabled";
+  const tasks = p.tasks || [];
+  const openT = tasks.filter(t => !t.done), doneT = tasks.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+  const taskRow = t => `<li class="task${t.done ? " done" : ""}">
+      <input type="checkbox" id="t-${esc(t.id)}" data-task-toggle="${esc(t.id)}" ${t.done ? "checked" : ""} ${ro}>
+      <label for="t-${esc(t.id)}">${esc(t.text)}</label>
+      ${state.canWrite ? `<button class="btn ghost" data-del-task="${esc(t.id)}" aria-label="Delete task">Delete</button>` : "<span></span>"}</li>`;
   el.innerHTML = `
     <div class="dhead">
       <input class="titleinput" id="title" value="${esc(p.name)}" aria-label="Project name" maxlength="120" ${ro}>
@@ -244,6 +265,19 @@ function renderDetail() {
     <section>
       <p class="label"><span>Where I'm up to</span><span class="hint" id="savehint">${p.upToAt ? "updated " + ago(p.upToAt) : ""}</span></p>
       <div class="bookmark"><textarea id="upto" placeholder="e.g. Finished the login screen. Next: hook up password reset." ${ro}>${esc(p.upTo || "")}</textarea></div>
+    </section>
+    <section>
+      <p class="label"><span>Tasks</span><span class="hint">${tasks.length ? doneT.length + " of " + tasks.length + " done" : ""}</span></p>
+      ${tasks.length ? `<div class="progress" aria-hidden="true"><span style="width:${Math.round(doneT.length / tasks.length * 100)}%"></span></div>` : ""}
+      <form class="taskform" id="taskform">
+        <label for="task" hidden>New task</label>
+        <input id="task" placeholder="Add a task, e.g. Write the pricing page copy" autocomplete="off" maxlength="500" ${ro}>
+        <button class="btn primary" type="submit" ${ro}>Add task</button>
+      </form>
+      <ul class="tasks">
+        ${openT.map(taskRow).join("") || (tasks.length ? "" : `<li class="notasks">No tasks yet. Break the project into steps and tick them off as you go.</li>`)}
+        ${doneT.length ? `<li class="donehead">Done</li>` + doneT.map(taskRow).join("") : ""}
+      </ul>
     </section>
     <section>
       <p class="label"><span>Notes</span><span class="hint">${notes.length} ${notes.length === 1 ? "entry" : "entries"}</span></p>
@@ -261,7 +295,7 @@ function renderDetail() {
     <div class="foot">
       <span>started ${p.createdAt ? new Date(p.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}</span>
       ${state.canWrite ? (state.confirmDelete
-        ? `<span class="confirm">Delete “${esc(p.name)}” and all its notes? <button class="btn danger" id="delyes">Delete project</button><button class="btn" id="delno">Keep it</button></span>`
+        ? `<span class="confirm">Delete “${esc(p.name)}” and all its tasks and notes? <button class="btn danger" id="delyes">Delete project</button><button class="btn" id="delno">Keep it</button></span>`
         : `<button class="btn ghost" id="delproj">Delete project</button>`) : ""}
     </div>`;
 }
@@ -313,7 +347,7 @@ $("newform").addEventListener("submit", e => {
   const name = $("newname").value.trim();
   if (!name) return;
   const id = uid(), now = Date.now();
-  const body = { name, status: "active", upTo: "", upToAt: 0, notes: [], createdAt: now, updatedAt: now };
+  const body = { name, status: "active", upTo: "", upToAt: 0, tasks: [], notes: [], createdAt: now, updatedAt: now };
   $("newname").value = "";
   if (state.filter === "done" || state.filter === "paused" || state.filter === "blocked") state.filter = "open";
   state.projects.push({ id, ...body });
@@ -335,6 +369,12 @@ detail.addEventListener("input", e => {
 });
 detail.addEventListener("change", e => {
   const p = current(); if (!p) return;
+  const tog = e.target.closest("[data-task-toggle]");
+  if (tog) {
+    const done = tog.checked;
+    patch(p.id, { tasks: (p.tasks || []).map(t => t.id === tog.dataset.taskToggle ? { ...t, done, doneAt: done ? Date.now() : 0 } : t) });
+    return;
+  }
   if (e.target.id === "status") patch(p.id, { status: e.target.value });
   if (e.target.id === "title") { const v = e.target.value.trim(); if (v && v !== p.name) patch(p.id, { name: v }); else e.target.value = p.name; }
 });
@@ -343,6 +383,14 @@ detail.addEventListener("keydown", e => {
   if (e.target.id === "title" && e.key === "Enter") e.target.blur();
 });
 detail.addEventListener("submit", e => {
+  if (e.target.id === "taskform") {
+    e.preventDefault();
+    const p = current(); const text = $("task").value.trim();
+    if (!p || !text) return;
+    $("task").value = "";
+    patch(p.id, { tasks: [...(p.tasks || []), { id: uid(), text, done: false, at: Date.now(), doneAt: 0 }] });
+    return;
+  }
   if (e.target.id !== "composer") return;
   e.preventDefault();
   const p = current(); const text = $("note").value.trim();
@@ -354,6 +402,8 @@ detail.addEventListener("submit", e => {
 detail.addEventListener("click", e => {
   const p = current(); if (!p) return;
   const del = e.target.closest("[data-del-note]");
+  const delT = e.target.closest("[data-del-task]");
+  if (delT) { patch(p.id, { tasks: (p.tasks || []).filter(t => t.id !== delT.dataset.delTask) }); return; }
   if (del) { patch(p.id, { notes: (p.notes || []).filter(n => n.id !== del.dataset.delNote) }); return; }
   if (e.target.id === "delproj") { state.confirmDelete = true; renderDetail(); return; }
   if (e.target.id === "delno") { state.confirmDelete = false; renderDetail(); return; }
@@ -372,7 +422,7 @@ function applySnapshot(docs) {
   if (state.selected && !current()) state.selected = null;
   if (!state.selected) { const v = visible(); if (v.length && window.innerWidth > 760) state.selected = v[0].id; }
   const a = document.activeElement;
-  const typing = a && detail.contains(a) && (a.id === "upto" || a.id === "note" || a.id === "title");
+  const typing = a && detail.contains(a) && (a.id === "upto" || a.id === "note" || a.id === "title" || a.id === "task");
   renderFilters(); renderList();
   if (typing) {
     const keep = { id: a.id, value: a.value, s: a.selectionStart, e: a.selectionEnd };

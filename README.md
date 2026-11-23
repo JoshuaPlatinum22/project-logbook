@@ -1,6 +1,6 @@
 # Project Logbook
 
-Track the projects you're working on. Each one has a "where I'm up to" bookmark and a dated log of notes.
+Track the projects you're working on. Each one has a "where I'm up to" bookmark, a task list, and a dated log of notes.
 
 ## Run locally
 
