@@ -237,7 +237,7 @@ function renderList() {
     return `<li><button class="item" data-id="${esc(p.id)}" aria-current="${p.id === state.selected}">
       <span class="name"><span>${esc(p.name)}</span><span class="pill s-${st.id}">${st.label}</span></span>
       <span class="peek">${esc(peek)}</span>
-      <span class="when">${(() => { const t = p.tasks || [], left = t.filter(x => !x.done).length; return t.length ? (left ? left + " task" + (left === 1 ? "" : "s") + " left · " : "all tasks done · ") : ""; })()}touched ${ago(p.updatedAt)}</span>
+      <span class="when">${(() => { const t = p.tasks || [], left = t.filter(x => !x.done).length; return t.length ? (left ? left + " milestone" + (left === 1 ? "" : "s") + " left · " : "all milestones done · ") : ""; })()}touched ${ago(p.updatedAt)}</span>
     </button></li>`;
   }).join("");
 }
@@ -248,7 +248,7 @@ function renderDetail() {
   if (!state.loaded) return;
   if (!p) {
     el.innerHTML = `<div class="welcome"><h2>${state.projects.length ? "Pick a project" : "Start your first project"}</h2>
-      <p>${state.projects.length ? "Choose a project from the list to see where you're up to and add notes." : "Add a project on the left. Each one gets a bookmark for where you're up to, a task list, and a dated log of notes."}</p></div>`;
+      <p>${state.projects.length ? "Choose a project from the list to see where you're up to and add notes." : "Add a project on the left. Each one gets a bookmark for where you're up to, a list of milestones, and a dated log of notes."}</p></div>`;
     return;
   }
   const notes = (p.notes || []).slice().sort((a, b) => b.at - a.at);
@@ -257,14 +257,14 @@ function renderDetail() {
   const openT = tasks.filter(t => !t.done), doneT = tasks.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
   const taskRow = t => state.editingTask === t.id ? `<li class="task editing">
       <form id="taskeditform" data-task-id="${esc(t.id)}">
-        <label for="taskedit" hidden>Task wording</label>
+        <label for="taskedit" hidden>Milestone wording</label>
         <input id="taskedit" value="${esc(t.text)}" maxlength="500" autocomplete="off">
         <button class="btn primary" type="submit">Save</button>
         <button class="btn" type="button" id="taskcancel">Cancel</button>
       </form></li>` : `<li class="task${t.done ? " done" : ""}">
       <input type="checkbox" id="t-${esc(t.id)}" data-task-toggle="${esc(t.id)}" ${t.done ? "checked" : ""} ${ro}>
       <label for="t-${esc(t.id)}">${esc(t.text)}</label>
-      ${state.canWrite ? `<span class="acts"><button class="btn ghost" data-edit-task="${esc(t.id)}" aria-label="Edit task">Edit</button><button class="btn ghost" data-del-task="${esc(t.id)}" aria-label="Delete task">Delete</button></span>` : "<span></span>"}</li>`;
+      ${state.canWrite ? `<span class="acts"><button class="btn ghost" data-edit-task="${esc(t.id)}" aria-label="Edit milestone">Edit</button><button class="btn ghost" data-del-task="${esc(t.id)}" aria-label="Delete milestone">Delete</button></span>` : "<span></span>"}</li>`;
   el.innerHTML = `
     <div class="dhead">
       <input class="titleinput" id="title" value="${esc(p.name)}" aria-label="Project name" maxlength="120" ${ro}>
@@ -278,15 +278,15 @@ function renderDetail() {
       <div class="bookmark"><textarea id="upto" placeholder="e.g. Finished the login screen. Next: hook up password reset." ${ro}>${esc(p.upTo || "")}</textarea></div>
     </section>
     <section>
-      <p class="label"><span>Tasks</span><span class="hint">${tasks.length ? doneT.length + " of " + tasks.length + " done" : ""}</span></p>
+      <p class="label"><span>Milestones</span><span class="hint">${tasks.length ? doneT.length + " of " + tasks.length + " done" : ""}</span></p>
       ${tasks.length ? `<div class="progress" aria-hidden="true"><span style="width:${Math.round(doneT.length / tasks.length * 100)}%"></span></div>` : ""}
       <form class="taskform" id="taskform">
-        <label for="task" hidden>New task</label>
-        <input id="task" placeholder="Add a task, e.g. Write the pricing page copy" autocomplete="off" maxlength="500" ${ro}>
-        <button class="btn primary" type="submit" ${ro}>Add task</button>
+        <label for="task" hidden>New milestone</label>
+        <input id="task" placeholder="Add a milestone, e.g. Pricing page live" autocomplete="off" maxlength="500" ${ro}>
+        <button class="btn primary" type="submit" ${ro}>Add milestone</button>
       </form>
       <ul class="tasks">
-        ${openT.map(taskRow).join("") || (tasks.length ? "" : `<li class="notasks">No tasks yet. Break the project into steps and tick them off as you go.</li>`)}
+        ${openT.map(taskRow).join("") || (tasks.length ? "" : `<li class="notasks">No milestones yet. Break the project into milestones and tick them off as you reach them.</li>`)}
         ${doneT.length ? `<li class="donehead">Done</li>` + doneT.map(taskRow).join("") : ""}
       </ul>
     </section>
@@ -306,7 +306,7 @@ function renderDetail() {
     <div class="foot">
       <span>started ${p.createdAt ? new Date(p.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}</span>
       ${state.canWrite ? (state.confirmDelete
-        ? `<span class="confirm">Delete “${esc(p.name)}” and all its tasks and notes? <button class="btn danger" id="delyes">Delete project</button><button class="btn" id="delno">Keep it</button></span>`
+        ? `<span class="confirm">Delete “${esc(p.name)}” and all its milestones and notes? <button class="btn danger" id="delyes">Delete project</button><button class="btn" id="delno">Keep it</button></span>`
         : `<button class="btn ghost" id="delproj">Delete project</button>`) : ""}
     </div>`;
 }
