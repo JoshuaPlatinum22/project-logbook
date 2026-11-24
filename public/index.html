@@ -66,7 +66,26 @@ button { cursor: pointer; }
 
 /* Shelf */
 .shelf { display: flex; flex-direction: column; gap: 12px; }
-.newform { display: flex; gap: 8px; }
+.newform { display: grid; gap: 8px; }
+.newform .row { display: flex; gap: 8px; }
+.newform select { width: 100%; font-size: 13.5px; color: var(--muted); }
+.tpls { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 6px; display: grid; gap: 6px; }
+.tpls h2 { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 2px; }
+.tpls ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.tpl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; }
+.tpl:hover { background: var(--sunk); }
+.tpl b { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpl small { font: 11.5px var(--mono); color: var(--muted); }
+.tpl .btn.ghost { font-size: 12.5px; padding: 2px 6px; }
+.tpl .confirm { font-size: 12.5px; gap: 4px; }
+.tpl .confirm .btn { padding: 3px 8px; font-size: 12.5px; }
+.tplhint { color: var(--muted); font-size: 13px; margin: 0; }
+.tplbar { display: grid; gap: 8px; background: var(--sunk); border-radius: 10px; padding: 14px; }
+.tplbar p { margin: 0; font-size: 13.5px; color: var(--muted); }
+.tplbar form { display: flex; gap: 8px; flex-wrap: wrap; }
+.tplbar input { flex: 1 1 220px; min-width: 0; border: 1px solid var(--accent); background: var(--surface); border-radius: 8px; padding: 7px 10px; }
+.footacts { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.flash { color: var(--ok); font: 12px var(--mono); }
 .newform input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 12px; }
 .filters { display: flex; gap: 6px; flex-wrap: wrap; }
 .chipbtn { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 3px 10px; font-size: 12.5px; color: var(--muted); }
@@ -163,12 +182,17 @@ select { border: 1px solid var(--line); background: var(--surface); border-radiu
   <div class="grid">
     <aside class="shelf">
       <form class="newform" id="newform">
-        <label for="newname" class="visually-hidden" hidden>New project name</label>
-        <input id="newname" placeholder="New project name" autocomplete="off" maxlength="120">
-        <button class="btn primary" type="submit" id="addbtn">Add</button>
+        <div class="row">
+          <label for="newname" hidden>New project name</label>
+          <input id="newname" placeholder="New project name" autocomplete="off" maxlength="120">
+          <button class="btn primary" type="submit" id="addbtn">Add</button>
+        </div>
+        <label for="newtpl" hidden>Start from a template</label>
+        <select id="newtpl" hidden></select>
       </form>
       <div class="filters" role="group" aria-label="Filter by status" id="filters"></div>
       <ul class="list" id="list"></ul>
+      <section class="tpls" id="tpls" aria-label="Templates"></section>
     </aside>
 
     <main class="detail" id="detail">
@@ -187,7 +211,7 @@ const STATUSES = [
   { id: "done", label: "Done" },
 ];
 const STATUS_RANK = { active: 0, blocked: 1, paused: 2, done: 3 };
-const state = { projects: [], selected: null, filter: "open", canWrite: true, loaded: false, confirmDelete: false, editingTask: null };
+const state = { projects: [], selected: null, filter: "open", canWrite: true, loaded: false, confirmDelete: false, editingTask: null, templates: [], tplSave: false, tplFlash: "", confirmTpl: null };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -303,18 +327,42 @@ function renderDetail() {
         <p>${esc(n.text)}</p>
         ${state.canWrite ? `<button class="btn ghost" data-del-note="${esc(n.id)}" aria-label="Delete note">Delete</button>` : "<span></span>"}</li>`).join("")
       : `<li class="nolog">No notes yet. Your log will build up here, newest first.</li>`}</ul>
+    ${state.tplSave ? `<div class="tplbar">
+      <p>${tasks.length ? `Save this project's ${tasks.length} milestone${tasks.length === 1 ? "" : "s"} as a template. New projects made from it start with these milestones, all unticked.` : "Add some milestones first, then save them as a template."}</p>
+      ${tasks.length ? `<form id="tplform">
+        <label for="tplname" hidden>Template name</label>
+        <input id="tplname" value="${esc(p.name)}" maxlength="120" autocomplete="off" placeholder="Template name">
+        <button class="btn primary" type="submit">Save template</button>
+        <button class="btn" type="button" id="tplcancel">Cancel</button>
+      </form>` : `<form><button class="btn" type="button" id="tplcancel">Close</button></form>`}
+    </div>` : ""}
     <div class="foot">
       <span>started ${p.createdAt ? new Date(p.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}</span>
       ${state.canWrite ? (state.confirmDelete
         ? `<span class="confirm">Delete “${esc(p.name)}” and all its milestones and notes? <button class="btn danger" id="delyes">Delete project</button><button class="btn" id="delno">Keep it</button></span>`
-        : `<button class="btn ghost" id="delproj">Delete project</button>`) : ""}
+        : `<span class="footacts">${state.tplFlash ? `<span class="flash" role="status">${esc(state.tplFlash)}</span>` : ""}<button class="btn ghost" id="tplopen">Save as template</button><button class="btn ghost" id="delproj">Delete project</button></span>`) : ""}
     </div>`;
 }
 
-function render() { renderFilters(); renderList(); renderDetail(); }
+function renderTemplates() {
+  const tpls = state.templates.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const sel = $("newtpl"), prev = sel.value;
+  sel.hidden = !tpls.length;
+  sel.innerHTML = `<option value="">Start blank</option>` + tpls.map(t => `<option value="${esc(t.id)}">Start from template: ${esc(t.name)}</option>`).join("");
+  if (tpls.some(t => t.id === prev)) sel.value = prev;
+  $("tpls").innerHTML = `<h2>Templates</h2>` + (tpls.length ? `<ul>${tpls.map(t => `<li class="tpl">
+      <span><b>${esc(t.name)}</b><small>${t.milestones.length} milestone${t.milestones.length === 1 ? "" : "s"}</small></span>
+      ${state.confirmTpl === t.id
+        ? `<span class="confirm">Delete? <button class="btn danger" data-tpl-yes="${esc(t.id)}">Delete</button><button class="btn" data-tpl-no>Keep</button></span>`
+        : `<button class="btn ghost" data-tpl-del="${esc(t.id)}" aria-label="Delete template ${esc(t.name)}">Delete</button>`}
+    </li>`).join("")}</ul>`
+    : `<p class="tplhint">Open a project and use “Save as template” at the bottom to reuse its milestones.</p>`);
+}
+
+function render() { renderFilters(); renderList(); renderTemplates(); renderDetail(); }
 
 function select(id) {
-  state.selected = id; state.confirmDelete = false; state.editingTask = null;
+  state.selected = id; state.confirmDelete = false; state.editingTask = null; state.tplSave = false; state.tplFlash = "";
   try { localStorage.setItem("pl-selected", id || ""); } catch (e) {}
   render();
 }
@@ -323,9 +371,9 @@ function notice(msg) { const n = $("notice"); n.textContent = msg || ""; n.hidde
 
 // --- storage: the server keeps projects in a JSON file ---
 const api = {
-  async list() { const r = await fetch("/api/projects", { cache: "no-store" }); if (!r.ok) throw r; return r.json(); },
-  async put(p) { const r = await fetch("/api/projects/" + encodeURIComponent(p.id), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) }); if (!r.ok) throw r; },
-  async del(id) { const r = await fetch("/api/projects/" + encodeURIComponent(id), { method: "DELETE" }); if (!r.ok) throw r; },
+  async list(coll = "projects") { const r = await fetch("/api/" + coll, { cache: "no-store" }); if (!r.ok) throw r; return r.json(); },
+  async put(p, coll = "projects") { const r = await fetch("/api/" + coll + "/" + encodeURIComponent(p.id), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) }); if (!r.ok) throw r; },
+  async del(id, coll = "projects") { const r = await fetch("/api/" + coll + "/" + encodeURIComponent(id), { method: "DELETE" }); if (!r.ok) throw r; },
 };
 let chain = Promise.resolve();
 function write(fn) {
@@ -351,6 +399,18 @@ $("filters").addEventListener("click", e => {
   state.filter = b.dataset.f; try { localStorage.setItem("pl-filter", state.filter); } catch (er) {}
   render();
 });
+$("tpls").addEventListener("click", e => {
+  const del = e.target.closest("[data-tpl-del]"), yes = e.target.closest("[data-tpl-yes]");
+  if (del) { state.confirmTpl = del.dataset.tplDel; renderTemplates(); return; }
+  if (e.target.closest("[data-tpl-no]")) { state.confirmTpl = null; renderTemplates(); return; }
+  if (yes) {
+    const id = yes.dataset.tplYes;
+    state.templates = state.templates.filter(t => t.id !== id);
+    state.confirmTpl = null;
+    renderTemplates();
+    write(() => api.del(id, "templates"));
+  }
+});
 $("list").addEventListener("click", e => { const b = e.target.closest("[data-id]"); if (b) select(b.dataset.id); });
 
 $("newform").addEventListener("submit", e => {
@@ -358,8 +418,11 @@ $("newform").addEventListener("submit", e => {
   const name = $("newname").value.trim();
   if (!name) return;
   const id = uid(), now = Date.now();
-  const body = { name, status: "active", upTo: "", upToAt: 0, tasks: [], notes: [], createdAt: now, updatedAt: now };
+  const tpl = state.templates.find(t => t.id === $("newtpl").value);
+  const tasks = tpl ? tpl.milestones.map((text, i) => ({ id: uid() + i, text, done: false, at: now + i, doneAt: 0 })) : [];
+  const body = { name, status: "active", upTo: "", upToAt: 0, tasks, notes: [], createdAt: now, updatedAt: now };
   $("newname").value = "";
+  $("newtpl").value = "";
   if (state.filter === "done" || state.filter === "paused" || state.filter === "blocked") state.filter = "open";
   state.projects.push({ id, ...body });
   write(() => api.put({ id, ...body }));
@@ -392,9 +455,26 @@ detail.addEventListener("change", e => {
 detail.addEventListener("keydown", e => {
   if (e.target.id === "note" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("composer").requestSubmit(); }
   if (e.target.id === "title" && e.key === "Enter") e.target.blur();
+  if (e.target.id === "tplname" && e.key === "Escape") { e.preventDefault(); state.tplSave = false; renderDetail(); $("tplopen")?.focus(); }
   if (e.target.id === "taskedit" && e.key === "Escape") { e.preventDefault(); cancelTaskEdit(); }
 });
 detail.addEventListener("submit", e => {
+  if (e.target.id === "tplform") {
+    e.preventDefault();
+    const p = current(); const name = $("tplname").value.trim();
+    if (!p || !name) { $("tplname")?.focus(); return; }
+    const milestones = (p.tasks || []).map(t => t.text);
+    const existing = state.templates.find(t => t.name.toLowerCase() === name.toLowerCase());
+    const tpl = { id: existing ? existing.id : uid(), name, milestones, createdAt: existing ? existing.createdAt : Date.now() };
+    state.templates = [...state.templates.filter(t => t.id !== tpl.id), tpl];
+    state.tplSave = false;
+    state.tplFlash = (existing ? "Updated" : "Saved") + " template “" + name + "”";
+    document.activeElement?.blur();
+    render();
+    $("tplopen")?.focus();
+    write(() => api.put(tpl, "templates"));
+    return;
+  }
   if (e.target.id === "taskeditform") {
     e.preventDefault();
     saveTaskEdit();
@@ -425,6 +505,12 @@ detail.addEventListener("click", e => {
   const delT = e.target.closest("[data-del-task]");
   if (delT) { patch(p.id, { tasks: (p.tasks || []).filter(t => t.id !== delT.dataset.delTask) }); return; }
   if (del) { patch(p.id, { notes: (p.notes || []).filter(n => n.id !== del.dataset.delNote) }); return; }
+  if (e.target.id === "tplopen") {
+    state.tplSave = true; state.tplFlash = ""; renderDetail();
+    const inp = $("tplname"); if (inp) { inp.focus(); inp.select(); }
+    return;
+  }
+  if (e.target.id === "tplcancel") { state.tplSave = false; renderDetail(); $("tplopen")?.focus(); return; }
   if (e.target.id === "delproj") { state.confirmDelete = true; renderDetail(); return; }
   if (e.target.id === "delno") { state.confirmDelete = false; renderDetail(); return; }
   if (e.target.id === "delyes") {
@@ -465,8 +551,8 @@ function applySnapshot(docs) {
   if (state.selected && !current()) state.selected = null;
   if (!state.selected) { const v = visible(); if (v.length && window.innerWidth > 760) state.selected = v[0].id; }
   const a = document.activeElement;
-  const typing = a && detail.contains(a) && (a.id === "upto" || a.id === "note" || a.id === "title" || a.id === "task" || a.id === "taskedit");
-  renderFilters(); renderList();
+  const typing = a && detail.contains(a) && (a.id === "upto" || a.id === "note" || a.id === "title" || a.id === "task" || a.id === "taskedit" || a.id === "tplname");
+  renderFilters(); renderList(); renderTemplates();
   if (typing) {
     const keep = { id: a.id, value: a.value, s: a.selectionStart, e: a.selectionEnd };
     renderDetail();
@@ -479,7 +565,8 @@ setInterval(() => { if (state.loaded) renderList(); }, 60000);
 
 async function load() {
   try {
-    const list = await api.list();
+    const [list, templates] = await Promise.all([api.list(), api.list("templates")]);
+    state.templates = templates;
     $("sync").textContent = "Saved";
     applySnapshot(list);
   } catch (e) {

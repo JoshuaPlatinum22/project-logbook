@@ -8,26 +8,33 @@ const crypto = require("crypto");
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
-const DATA_FILE = path.join(DATA_DIR, "projects.json");
 const PASSWORD = process.env.APP_PASSWORD || "";
 const INDEX = fs.readFileSync(path.join(__dirname, "public", "index.html"));
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
-let projects = {};
-try { projects = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); } catch (e) { projects = {}; }
 
-let saving = Promise.resolve();
-function persist() {
-  const snapshot = JSON.stringify(projects);
-  saving = saving.then(() => new Promise((resolve) => {
-    const tmp = DATA_FILE + ".tmp";
-    fs.writeFile(tmp, snapshot, (err) => {
-      if (err) { console.error("save failed", err); return resolve(); }
-      fs.rename(tmp, DATA_FILE, (err2) => { if (err2) console.error("rename failed", err2); resolve(); });
-    });
-  }));
-  return saving;
+// One JSON file per collection: projects.json and templates.json.
+function store(name) {
+  const file = path.join(DATA_DIR, name + ".json");
+  let items = {};
+  try { items = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { items = {}; }
+  let saving = Promise.resolve();
+  return {
+    items,
+    persist() {
+      const snapshot = JSON.stringify(items);
+      saving = saving.then(() => new Promise((resolve) => {
+        const tmp = file + ".tmp";
+        fs.writeFile(tmp, snapshot, (err) => {
+          if (err) { console.error("save failed", err); return resolve(); }
+          fs.rename(tmp, file, (err2) => { if (err2) console.error("rename failed", err2); resolve(); });
+        });
+      }));
+      return saving;
+    },
+  };
 }
+const stores = { projects: store("projects"), templates: store("templates") };
 
 function authorized(req) {
   if (!PASSWORD) return true;
@@ -57,6 +64,14 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const STATUSES = ["active", "paused", "blocked", "done"];
 const str = (v, max) => String(v ?? "").slice(0, max);
 const num = (v) => (Number.isFinite(v) ? v : 0);
+function cleanTemplate(id, t) {
+  return {
+    id,
+    name: str(t.name, 120) || "Untitled template",
+    milestones: (Array.isArray(t.milestones) ? t.milestones : []).slice(0, 1000).map((m) => str(m, 500)).filter(Boolean),
+    createdAt: num(t.createdAt) || Date.now(),
+  };
+}
 function clean(id, p) {
   return {
     id,
@@ -78,21 +93,23 @@ http.createServer(async (req, res) => {
     return res.end("Password required");
   }
   const url = new URL(req.url, "http://x");
-  const m = url.pathname.match(/^\/api\/projects(?:\/([^/]+))?$/);
+  const m = url.pathname.match(/^\/api\/(projects|templates)(?:\/([^/]+))?$/);
   try {
     if (m) {
-      const id = m[1] ? decodeURIComponent(m[1]) : null;
-      if (!id && req.method === "GET") return send(res, 200, Object.values(projects));
+      const st = stores[m[1]];
+      const cleaner = m[1] === "projects" ? clean : cleanTemplate;
+      const id = m[2] ? decodeURIComponent(m[2]) : null;
+      if (!id && req.method === "GET") return send(res, 200, Object.values(st.items));
       if (id && !ID.test(id)) return send(res, 400, { error: "bad id" });
       if (id && req.method === "PUT") {
         const body = JSON.parse(await readBody(req));
-        projects[id] = clean(id, body);
-        await persist();
-        return send(res, 200, projects[id]);
+        st.items[id] = cleaner(id, body);
+        await st.persist();
+        return send(res, 200, st.items[id]);
       }
       if (id && req.method === "DELETE") {
-        delete projects[id];
-        await persist();
+        delete st.items[id];
+        await st.persist();
         return send(res, 200, { ok: true });
       }
       return send(res, 405, { error: "method not allowed" });
@@ -104,4 +121,4 @@ http.createServer(async (req, res) => {
   } catch (e) {
     send(res, 400, { error: "bad request" });
   }
-}).listen(PORT, () => console.log(`Project Logbook on port ${PORT}, data in ${DATA_FILE}${PASSWORD ? ", password on" : ""}`));
+}).listen(PORT, () => console.log(`Project Logbook on port ${PORT}, data in ${DATA_DIR}${PASSWORD ? ", password on" : ""}`));

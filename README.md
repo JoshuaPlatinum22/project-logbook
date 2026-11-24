@@ -1,6 +1,6 @@
 # Project Logbook
 
-Track the projects you're working on. Each one has a "where I'm up to" bookmark, a list of milestones, and a dated log of notes.
+Track the projects you're working on. Each one has a "where I'm up to" bookmark, a list of milestones, and a dated log of notes. Save a project's milestones as a template to start new projects from.
 
 ## Run locally
 
