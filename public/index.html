@@ -76,8 +76,15 @@ button { cursor: pointer; }
 .tpls { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 6px; display: grid; gap: 6px; }
 .tpls h2 { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 2px; }
 .tpls ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.tpl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; }
+.tpl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 2px 4px 2px 0; border-radius: 6px; }
 .tpl:hover { background: var(--sunk); }
+.tpl.open { background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
+.tplopen { border: 0; background: transparent; text-align: left; padding: 6px 8px; border-radius: 6px; min-width: 0; }
+.eyebrow { font: 11.5px var(--mono); color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.usebox { display: grid; gap: 8px; background: var(--accent-soft); border-radius: 10px; padding: 16px; }
+.usebox form { display: flex; gap: 8px; flex-wrap: wrap; }
+.usebox input { flex: 1 1 220px; min-width: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 12px; }
+.usebox p { margin: 0; color: var(--muted); font-size: 13.5px; }
 .tpl b { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tpl small { font: 11.5px var(--mono); color: var(--muted); }
 .tpl .btn.ghost { font-size: 12.5px; padding: 2px 6px; }
@@ -221,7 +228,7 @@ const STATUSES = [
   { id: "done", label: "Done" },
 ];
 const STATUS_RANK = { active: 0, blocked: 1, paused: 2, done: 3 };
-const state = { projects: [], selected: null, filter: "open", canWrite: true, loaded: false, confirmDelete: false, editingTask: null, templates: [], tplSave: false, tplFlash: "", confirmTpl: null };
+const state = { projects: [], selected: null, filter: "open", canWrite: true, loaded: false, confirmDelete: false, editingTask: null, templates: [], tplSave: false, tplFlash: "", confirmTpl: null, openTpl: null, editingMs: null };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -268,7 +275,7 @@ function renderList() {
   $("list").innerHTML = items.map(p => {
     const st = STATUSES.find(s => s.id === p.status) || STATUSES[0];
     const peek = p.upTo ? p.upTo.split("\n")[0] : "No bookmark yet";
-    return `<li><button class="item" data-id="${esc(p.id)}" aria-current="${p.id === state.selected}">
+    return `<li><button class="item" data-id="${esc(p.id)}" aria-current="${p.id === state.selected && !state.openTpl}">
       <span class="name"><span>${esc(p.name)}</span><span class="pill s-${st.id}">${st.label}</span></span>
       <span class="peek">${esc(peek)}</span>
       <span class="when">${(() => { const t = p.tasks || [], left = t.filter(x => !x.done).length; return t.length ? (left ? left + " milestone" + (left === 1 ? "" : "s") + " left · " : "all milestones done · ") : ""; })()}touched ${ago(p.updatedAt)}</span>
@@ -276,8 +283,56 @@ function renderList() {
   }).join("");
 }
 
+function renderTemplateDetail(el, t) {
+  const ms = t.milestones;
+  el.innerHTML = `
+    <div class="dhead">
+      <div style="flex:1 1 240px;min-width:0">
+        <div class="eyebrow">Template</div>
+        <input class="titleinput" id="tpltitle" value="${esc(t.name)}" aria-label="Template name" maxlength="120" style="width:100%">
+      </div>
+    </div>
+    <div class="usebox">
+      <p class="label" style="margin:0"><span>Start a project from this template</span></p>
+      <form id="useform">
+        <label for="usename" hidden>New project name</label>
+        <input id="usename" placeholder="New project name" autocomplete="off" maxlength="120">
+        <button class="btn primary" type="submit">Create project</button>
+      </form>
+      <p>The new project starts with ${ms.length ? `these ${ms.length} milestone${ms.length === 1 ? "" : "s"}, all unticked` : "no milestones, because this template is empty"}.</p>
+    </div>
+    <section>
+      <p class="label"><span>Milestones in this template</span><span class="hint">${ms.length}</span></p>
+      <form class="taskform" id="tmsform">
+        <label for="tms" hidden>New milestone</label>
+        <input id="tms" placeholder="Add a milestone to this template" autocomplete="off" maxlength="500">
+        <button class="btn primary" type="submit">Add milestone</button>
+      </form>
+      <ul class="tasks">${ms.length ? ms.map((m, i) => state.editingMs === i ? `<li class="task editing">
+        <form id="tmseditform">
+          <label for="tmsedit" hidden>Milestone wording</label>
+          <input id="tmsedit" value="${esc(m)}" maxlength="500" autocomplete="off">
+          <button class="btn primary" type="submit">Save</button>
+          <button class="btn" type="button" id="tmscancel">Cancel</button>
+        </form></li>` : `<li class="task" style="grid-template-columns:auto minmax(0,1fr) auto">
+        <span class="eyebrow" style="padding-top:3px;min-width:1.6em">${i + 1}.</span>
+        <span style="overflow-wrap:anywhere">${esc(m)}</span>
+        <span class="acts"><button class="btn ghost" data-tms-edit="${i}" aria-label="Edit milestone">Edit</button><button class="btn ghost" data-tms-del="${i}" aria-label="Delete milestone">Delete</button></span></li>`).join("")
+        : `<li class="notasks">This template has no milestones yet. Add some above.</li>`}</ul>
+    </section>
+    <div class="foot">
+      <span>saved ${t.createdAt ? new Date(t.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : ""}</span>
+      <span class="footacts">${state.confirmTpl === t.id
+        ? `<span class="confirm">Delete the “${esc(t.name)}” template? Projects already made from it are kept. <button class="btn danger" data-tpl-yes="${esc(t.id)}">Delete template</button><button class="btn" data-tpl-no>Keep it</button></span>`
+        : `<button class="btn ghost" data-tpl-del="${esc(t.id)}">Delete template</button>`}</span>
+    </div>`;
+}
+
 function renderDetail() {
   const el = $("detail");
+  const ot = state.openTpl && state.templates.find(t => t.id === state.openTpl);
+  if (state.loaded && ot) return renderTemplateDetail(el, ot);
+  if (state.openTpl && !ot) state.openTpl = null;
   const p = current();
   if (!state.loaded) return;
   if (!p) {
@@ -360,8 +415,8 @@ function renderTemplates() {
   sel.hidden = !tpls.length;
   sel.innerHTML = `<option value="">Start blank</option>` + tpls.map(t => `<option value="${esc(t.id)}">Start from template: ${esc(t.name)}</option>`).join("");
   if (tpls.some(t => t.id === prev)) sel.value = prev;
-  $("tpls").innerHTML = `<h2>Templates</h2>` + (tpls.length ? `<ul>${tpls.map(t => `<li class="tpl">
-      <span><b>${esc(t.name)}</b><small>${t.milestones.length} milestone${t.milestones.length === 1 ? "" : "s"}</small></span>
+  $("tpls").innerHTML = `<h2>Templates</h2>` + (tpls.length ? `<ul>${tpls.map(t => `<li class="tpl${state.openTpl === t.id ? " open" : ""}">
+      <button class="tplopen" data-tpl-open="${esc(t.id)}" aria-current="${state.openTpl === t.id}"><b>${esc(t.name)}</b><small>${t.milestones.length} milestone${t.milestones.length === 1 ? "" : "s"}</small></button>
       ${state.confirmTpl === t.id
         ? `<span class="confirm">Delete? <button class="btn danger" data-tpl-yes="${esc(t.id)}">Delete</button><button class="btn" data-tpl-no>Keep</button></span>`
         : `<button class="btn ghost" data-tpl-del="${esc(t.id)}" aria-label="Delete template ${esc(t.name)}">Delete</button>`}
@@ -372,7 +427,7 @@ function renderTemplates() {
 function render() { renderFilters(); renderList(); renderTemplates(); renderDetail(); }
 
 function select(id) {
-  state.selected = id; state.confirmDelete = false; state.editingTask = null; state.tplSave = false; state.tplFlash = "";
+  state.selected = id; state.confirmDelete = false; state.editingTask = null; state.tplSave = false; state.tplFlash = ""; state.openTpl = null;
   try { localStorage.setItem("pl-selected", id || ""); } catch (e) {}
   render();
 }
@@ -409,36 +464,61 @@ $("filters").addEventListener("click", e => {
   state.filter = b.dataset.f; try { localStorage.setItem("pl-filter", state.filter); } catch (er) {}
   render();
 });
-$("tpls").addEventListener("click", e => {
+function tplClicks(e) {
+  const open = e.target.closest("[data-tpl-open]");
+  if (open) { openTemplate(open.dataset.tplOpen); return true; }
   const del = e.target.closest("[data-tpl-del]"), yes = e.target.closest("[data-tpl-yes]");
-  if (del) { state.confirmTpl = del.dataset.tplDel; renderTemplates(); return; }
-  if (e.target.closest("[data-tpl-no]")) { state.confirmTpl = null; renderTemplates(); return; }
+  if (del) { state.confirmTpl = del.dataset.tplDel; renderTemplates(); renderDetail(); return true; }
+  if (e.target.closest("[data-tpl-no]")) { state.confirmTpl = null; renderTemplates(); renderDetail(); return true; }
   if (yes) {
     const id = yes.dataset.tplYes;
     state.templates = state.templates.filter(t => t.id !== id);
     state.confirmTpl = null;
-    renderTemplates();
+    if (state.openTpl === id) state.openTpl = null;
+    render();
     write(() => api.del(id, "templates"));
+    return true;
   }
+  return false;
+}
+function openTemplate(id) {
+  state.openTpl = id; state.editingMs = null; state.confirmTpl = null;
+  render();
+  if (window.innerWidth <= 760) $("detail").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function saveTemplate(t) {
+  state.templates = state.templates.map(x => x.id === t.id ? t : x);
+  renderTemplates();
+  write(() => api.put(t, "templates"));
+}
+function openTplObj() { return state.templates.find(t => t.id === state.openTpl); }
+$("tpls").addEventListener("click", tplClicks);
+$("newtpl").addEventListener("change", () => {
+  $("addbtn").textContent = $("newtpl").value ? "Create" : "Add";
+  $("newname").placeholder = $("newtpl").value ? "Name the new project" : "New project name";
+  $("newname").focus();
 });
 $("list").addEventListener("click", e => { const b = e.target.closest("[data-id]"); if (b) select(b.dataset.id); });
 
 $("newform").addEventListener("submit", e => {
   e.preventDefault();
   const name = $("newname").value.trim();
-  if (!name) return;
-  const id = uid(), now = Date.now();
+  if (!name) { $("newname").focus(); return; }
+  $("newname").value = "";
   const tpl = state.templates.find(t => t.id === $("newtpl").value);
+  $("newtpl").value = ""; $("addbtn").textContent = "Add"; $("newname").placeholder = "New project name";
+  createProject(name, tpl);
+});
+function createProject(name, tpl) {
+  const id = uid(), now = Date.now();
   const tasks = tpl ? tpl.milestones.map((text, i) => ({ id: uid() + i, text, done: false, at: now + i, doneAt: 0 })) : [];
   const body = { name, status: "active", upTo: "", upToAt: 0, tasks, notes: [], createdAt: now, updatedAt: now };
-  $("newname").value = "";
-  $("newtpl").value = "";
   if (state.filter === "done" || state.filter === "paused" || state.filter === "blocked") state.filter = "open";
   state.projects.push({ id, ...body });
   write(() => api.put({ id, ...body }));
   select(id);
   setTimeout(() => $("upto")?.focus(), 50);
-});
+}
 
 let upToTimer = null;
 const detail = $("detail");
@@ -452,6 +532,11 @@ detail.addEventListener("input", e => {
   }
 });
 detail.addEventListener("change", e => {
+  if (state.openTpl && e.target.id === "tpltitle") {
+    const t = openTplObj(); const v = e.target.value.trim();
+    if (t && v && v !== t.name) saveTemplate({ ...t, name: v }); else if (t) e.target.value = t.name;
+    return;
+  }
   const p = current(); if (!p) return;
   const tog = e.target.closest("[data-task-toggle]");
   if (tog) {
@@ -466,9 +551,31 @@ detail.addEventListener("keydown", e => {
   if (e.target.id === "note" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("composer").requestSubmit(); }
   if (e.target.id === "title" && e.key === "Enter") e.target.blur();
   if (e.target.id === "tplname" && e.key === "Escape") { e.preventDefault(); state.tplSave = false; renderDetail(); $("tplopen")?.focus(); }
+  if (e.target.id === "tmsedit" && e.key === "Escape") { e.preventDefault(); state.editingMs = null; renderDetail(); }
+  if (e.target.id === "tpltitle" && e.key === "Enter") e.target.blur();
   if (e.target.id === "taskedit" && e.key === "Escape") { e.preventDefault(); cancelTaskEdit(); }
 });
 detail.addEventListener("submit", e => {
+  if (state.openTpl && ["useform", "tmsform", "tmseditform"].includes(e.target.id)) {
+    e.preventDefault();
+    const t = openTplObj(); if (!t) return;
+    if (e.target.id === "tmsform") {
+      const v = $("tms").value.trim(); if (!v) return;
+      $("tms").value = "";
+      saveTemplate({ ...t, milestones: [...t.milestones, v] });
+      renderDetail(); $("tms").focus();
+    } else if (e.target.id === "tmseditform") {
+      const v = $("tmsedit").value.trim(); if (!v) { $("tmsedit").focus(); return; }
+      const ms = t.milestones.slice(); ms[state.editingMs] = v;
+      state.editingMs = null;
+      saveTemplate({ ...t, milestones: ms });
+      renderDetail();
+    } else {
+      const name = $("usename").value.trim(); if (!name) { $("usename").focus(); return; }
+      createProject(name, t);
+    }
+    return;
+  }
   if (e.target.id === "tplform") {
     e.preventDefault();
     const p = current(); const name = $("tplname").value.trim();
@@ -507,6 +614,15 @@ detail.addEventListener("submit", e => {
   patch(p.id, { notes });
 });
 detail.addEventListener("click", e => {
+  if (state.openTpl) {
+    if (tplClicks(e)) return;
+    const t = openTplObj(); if (!t) return;
+    const ed = e.target.closest("[data-tms-edit]"), dl = e.target.closest("[data-tms-del]");
+    if (ed) { state.editingMs = +ed.dataset.tmsEdit; renderDetail(); const i = $("tmsedit"); i?.focus(); i?.setSelectionRange(i.value.length, i.value.length); return; }
+    if (e.target.id === "tmscancel") { state.editingMs = null; renderDetail(); return; }
+    if (dl) { saveTemplate({ ...t, milestones: t.milestones.filter((_, i) => i !== +dl.dataset.tmsDel) }); renderDetail(); }
+    return;
+  }
   const p = current(); if (!p) return;
   const del = e.target.closest("[data-del-note]");
   const editT = e.target.closest("[data-edit-task]");
@@ -561,7 +677,7 @@ function applySnapshot(docs) {
   if (state.selected && !current()) state.selected = null;
   if (!state.selected) { const v = visible(); if (v.length && window.innerWidth > 760) state.selected = v[0].id; }
   const a = document.activeElement;
-  const typing = a && detail.contains(a) && (a.id === "upto" || a.id === "note" || a.id === "title" || a.id === "task" || a.id === "taskedit" || a.id === "tplname");
+  const typing = a && detail.contains(a) && (a.id === "upto" || a.id === "note" || a.id === "title" || a.id === "task" || a.id === "taskedit" || a.id === "tplname" || ["usename", "tms", "tmsedit", "tpltitle"].includes(a.id));
   renderFilters(); renderList(); renderTemplates();
   if (typing) {
     const keep = { id: a.id, value: a.value, s: a.selectionStart, e: a.selectionEnd };
